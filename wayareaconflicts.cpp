@@ -37,59 +37,6 @@ enum {
 	WAY_IS_AREA
 };
 
-class MyOGRHandler : public osmium::handler::Handler {
-
-    gdalcpp::Layer m_layer_linestring;
-
-    osmium::geom::OGRFactory<>& m_factory;
-
-public:
-
-    explicit MyOGRHandler(gdalcpp::Dataset& dataset, osmium::geom::OGRFactory<>& factory) :
-        m_layer_linestring(dataset, "wayareaconflict", wkbLineString),
-	m_factory(factory) {
-        m_layer_linestring.add_field("lineway_id", OFTString, 20);
-        m_layer_linestring.add_field("lineway_type", OFTString, 20);
-        m_layer_linestring.add_field("areaway_id", OFTString, 20);
-        m_layer_linestring.add_field("areaway_type", OFTString, 20);
-	}
-
-        void write_line(
-                        const osmium::Location&		point1,
-                        const osmium::Location&		point2,
-                        osmium::object_id_type          linewayid,
-                        const char                      *linewaytype,
-                        osmium::object_id_type          areawayid,
-                        const char                      *areawaytype
-                        ) {
-
-		std::unique_ptr<OGRLineString> connection_line{new OGRLineString};
-
-		try {
-			std::unique_ptr<OGRPoint> op1=m_factory.create_point(point1);
-			std::unique_ptr<OGRPoint> op2=m_factory.create_point(point2);
-
-			connection_line->addPoint(op1.get());
-			connection_line->addPoint(op2.get());
-
-		} catch(osmium::invalid_location) {
-			std::cerr << "Invalid location" << std::endl;
-			return;
-		}
-
-
-		gdalcpp::Feature feature{m_layer_linestring, std::move(connection_line)};
-
-                feature.set_field("lineway_id", static_cast<double>(linewayid));
-                feature.set_field("lineway_type", linewaytype);
-                feature.set_field("areaway_id" , static_cast<double>(areawayid));
-                feature.set_field("areaway_type", areawaytype);
-
-                feature.add_to_layer();
-        }
-};
-
-
 class AttachedWay {
 
 	char					wayisarea;
@@ -97,6 +44,7 @@ class AttachedWay {
 	const char				*username;
 	osmium::Timestamp			timestamp;
 	osmium::object_id_type			wayid;
+	osmium::object_id_type			changesetid;
 public:
 
 	std::vector<osmium::object_id_type>	nodeids;
@@ -108,6 +56,7 @@ public:
 		wayid=way.id();
 		username=strdup(way.user());
 		timestamp=way.timestamp();
+		changesetid=way.changeset();
 
 		for (auto& node_ref : way.nodes()) {
 			nodeids.push_back(node_ref.ref());
@@ -226,6 +175,64 @@ public:
 		return wayid;
 	}
 
+	osmium::object_id_type changeset(void ) {
+		return changesetid;
+	}
+
+};
+
+
+class MyOGRHandler : public osmium::handler::Handler {
+
+    gdalcpp::Layer m_layer_linestring;
+
+    osmium::geom::OGRFactory<>& m_factory;
+
+public:
+
+    explicit MyOGRHandler(gdalcpp::Dataset& dataset, osmium::geom::OGRFactory<>& factory) :
+        m_layer_linestring(dataset, "wayareaconflict", wkbLineString),
+	m_factory(factory) {
+        m_layer_linestring.add_field("lineway_id", OFTString, 20);
+        m_layer_linestring.add_field("lineway_type", OFTString, 20);
+        m_layer_linestring.add_field("lineway_changeset", OFTString, 20);
+        m_layer_linestring.add_field("areaway_id", OFTString, 20);
+        m_layer_linestring.add_field("areaway_type", OFTString, 20);
+        m_layer_linestring.add_field("areaway_changeset", OFTString, 20);
+	}
+
+        void write_line(
+                        const osmium::Location&		point1,
+                        const osmium::Location&		point2,
+			AttachedWay			*awo,
+			AttachedWay			*aw)
+                        {
+
+		std::unique_ptr<OGRLineString> connection_line{new OGRLineString};
+
+		try {
+			std::unique_ptr<OGRPoint> op1=m_factory.create_point(point1);
+			std::unique_ptr<OGRPoint> op2=m_factory.create_point(point2);
+
+			connection_line->addPoint(op1.get());
+			connection_line->addPoint(op2.get());
+
+		} catch(osmium::invalid_location) {
+			std::cerr << "Invalid location" << std::endl;
+			return;
+		}
+
+		gdalcpp::Feature feature{m_layer_linestring, std::move(connection_line)};
+
+                feature.set_field("lineway_id", static_cast<double>(awo->id()));
+                feature.set_field("lineway_type", awo->primarytag());
+                feature.set_field("lineway_changeset", static_cast<double>(awo->changeset()));
+                feature.set_field("areaway_id" , static_cast<double>(aw->id()));
+                feature.set_field("areaway_type", aw->primarytag());
+                feature.set_field("areaway_changeset", static_cast<double>(aw->changeset()));
+
+                feature.add_to_layer();
+        }
 };
 
 struct AttachedWaysHandler : public osmium::handler::Handler {
@@ -256,9 +263,11 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 				continue;
 			}
 
-			std::cout << "overlap: w" << awo->id() << ",w" << aw->id()
-				<< " " << awo->primarytag() << "," << aw->primarytag()
-				<< " n" << nid1 << ",n" << nid2 << " ";
+			std::cout << "overlap: "
+				<< " " << awo->primarytag() << "," << aw->primarytag() << " "
+				<< "w" << awo->id() << ",w" << aw->id()
+				<< " n" << nid1 << ",n" << nid2 << " "
+				<< " changesets " << awo->changeset() << "," << aw->changeset() << " ";
 
 			osmium::Timestamp	t=aw->time();
 			if (awo->time() > t) {
@@ -270,7 +279,7 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 			osmium::Location	nl1=nindex->get(nid1)->first,
 						nl2=nindex->get(nid2)->first;
 
-			writer.write_line(nl1, nl2, awo->id(), awo->primarytag(), aw->id(), aw->primarytag());
+			writer.write_line(nl1, nl2, awo, aw);
 		}
 	}
 
