@@ -410,7 +410,9 @@ int main(int argc, char* argv[]) {
 	nodeindex_t		ni;
 	OGRRegisterAll();
 
-	gdalcpp::Dataset		dataset{"sqlite", "db-wayareaconflict.sqlite", gdalcpp::SRS{}, { "SPATIALITE=TRUE", "INIT_WITH_EPSG=no"}};
+	gdalcpp::Dataset		dataset{"sqlite", "db-wayareaconflict.sqlite", gdalcpp::SRS{}, { "SPATIALITE=TRUE", "INIT_WITH_EPSG=no" }};
+	dataset.exec("PRAGMA synchronous = OFF");
+
 	osmium::geom::OGRFactory<>	ogrfactory {};
 
 	osmium::io::File	infile(argv[optind]);
