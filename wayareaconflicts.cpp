@@ -291,8 +291,8 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 			 * Halve the runtime by only going from line -> area 
 			 * and not processing the other way around
 			 */
-			//if (aw->area() != WAY_IS_LINE)
-			//	continue;
+			if (aw->area() != WAY_IS_LINE)
+				continue;
 
 			/* Check if there are 2 consecutive nodes which have a refcount > 1 */
 			for(auto nid : aw->nodeids) {
