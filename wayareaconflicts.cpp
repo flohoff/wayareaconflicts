@@ -153,13 +153,19 @@ public:
 	 */
 	bool hassegment(osmium::object_id_type n1, osmium::object_id_type n2) {
 		osmium::object_id_type on2=0;
+
 		for (auto on1 : nodeids) {
+
+			if (DEBUG)
+				std::cout << "\t\t\tn1 " << n1 << " n2 " << n2 << " on1 " << on1 << " on2 " << on2 << std::endl;
+
 			if (on2) {
 				if ((n1 == on1 && n2 == on2) ||
 					(n2 == on1 && n1 == on2) ) {
 					return true;
 				}
 			}
+
 			on2=on1;
 		}
 
@@ -252,12 +258,18 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 		waycontainer_t	*ways=nindex->get(nid1)->second;
 		// FIXME - Non existant node
 		for(auto aw : *ways) {
+			if (DEBUG)
+				std::cout << "\t\tChecking " << aw->id() << std::endl;
+
 			if (aw->id() == awo->id())
 				continue;
 
 			if (!aw->hassegment(nid1, nid2)) {
 				continue;
 			}
+
+			if (DEBUG)
+				std::cout << "\t\tHas segment " << nid1 << " " << nid2 << std::endl;
 
 			if (aw->mayoverlap(awo)) {
 				continue;
@@ -287,6 +299,9 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 		for(auto aw : attachedways) {
 			osmium::object_id_type	lastnid=0;
 
+			if (DEBUG)
+				std::cout << "Way " << aw->id() << std::endl;
+
 			/*
 			 * Halve the runtime by only going from line -> area 
 			 * and not processing the other way around
@@ -298,10 +313,9 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 			for(auto nid : aw->nodeids) {
 
 				if (DEBUG)
-					std::cout << "Way " << aw->id() 
-						<< " Node: " << nid 
-						<< " Last: " << lastnid
+						std::cout << "\tNode: " << nid 
 						<< " count: " << nindex->get(nid)->second->size()
+						<< " Last: " << lastnid
 						<< std::endl;
 
 				if (nindex->get(nid)->second->size() <= 1) {
@@ -318,6 +332,9 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 				}
 				lastnid=nid;
 			}
+
+			if (DEBUG)
+				std::cout << std::endl;
 		}
 	}
 
