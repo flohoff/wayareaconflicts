@@ -18,6 +18,8 @@
 #include <osmium/geom/factory.hpp>
 #include <osmium/osm/timestamp.hpp>
 
+#include <boost/program_options.hpp>
+
 #define DEBUG 0
 
 #include <gdalcpp.hpp>
@@ -391,48 +393,32 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 	}
 };
 
-
+namespace po = boost::program_options;
 
 int main(int argc, char* argv[]) {
 	std::string	directory=".";
 
-	static struct option long_options[] = {
-		{"help",	no_argument, 0, 'h'},
-		{"infile",	no_argument, 0, 'i'},
-		{"directory",	no_argument, 0, 'd'},
-		{0, 0, 0, 0}
-	};
-
-	while (true) {
-		int c=getopt_long(argc, argv, "id:", long_options, 0);
-		if (c == -1) {
-			break;
-		}
-		switch(c) {
-			case 'h':
-				std::cout << "Help\n";
-				exit(0);
-			case 'd':
-				directory=optarg;
-				break;
-		}
-	}
-
-	int remaining_args = argc - optind;
-	if (remaining_args != 1) {
-		std::cerr << "Usage: " << argv[0] << " [OPTIONS] OSMFILE\n";
-		exit(1);
-	}
+        po::options_description         desc("Allowed options");
+        desc.add_options()
+                ("help,h", "produce help message")
+                ("infile,i", po::value<std::string>(), "Input file")
+		("dbname", po::value<std::string>(), "Output database name")
+        ;
+        po::variables_map vm;
+        po::store(po::parse_command_line(argc, argv, desc), vm);
+	po::notify(vm);
 
 	nodeindex_t		ni;
 	OGRRegisterAll();
 
-	gdalcpp::Dataset		dataset{"sqlite", "db-wayareaconflict.sqlite", gdalcpp::SRS{}, { "SPATIALITE=TRUE", "INIT_WITH_EPSG=no" }};
+	gdalcpp::Dataset	dataset{"sqlite", vm["dbname"].as<std::string>(),
+			gdalcpp::SRS{}, { "SPATIALITE=TRUE", "INIT_WITH_EPSG=no" }};
+
 	dataset.exec("PRAGMA synchronous = OFF");
 
 	osmium::geom::OGRFactory<>	ogrfactory {};
 
-	osmium::io::File	infile(argv[optind]);
+	osmium::io::File	infile(vm["infile"].as<std::string>());
 	osmium::io::Reader	reader(infile);
 
 	AttachedWaysHandler	awhandler(&ni);
