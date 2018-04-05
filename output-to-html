@@ -1,0 +1,60 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Template;
+
+# overlap:  landuse,highway w448255328,w34128458 n280970259,n280970264  changesets 42974966,42974887 2016-10-18T05:26:31Z ff-micha
+
+my @rows;
+while(<STDIN>) {
+	chomp();
+	my ($overlap, $typestring, $waystring, $nodestring, $changesettxt, $changesetstring, $date, $user) = split(/\s+/, $_);
+
+	my @types=map { s/^w//; $_; } split(/,/, $typestring);
+	my @ways=map { s/^w//; $_; } split(/,/, $waystring);
+	my @nodes=map { s/^n//; $_; } split(/,/, $nodestring);
+	my @changesets=split(/,/, $changesetstring);
+
+	push @rows, {
+		no => scalar @rows,
+		types => \@types,
+		typestring => $typestring,
+		ways => \@ways,
+		waystring => $waystring,
+		nodes => \@nodes,
+		nodestring => $nodestring,
+		changesets => \@changesets,
+		changesetstring => $changesetstring,
+		date => $date,
+		user => $user
+	};
+}
+
+my $tt=new Template();
+$tt->process(\*DATA, { rows => \@rows })
+    || die $tt->error(), "\n";
+
+__END__
+<html>
+<body>
+<ul>
+[%- FOREACH row IN rows %]
+<li style="font-family: monospace;">
+	[% row.no %]
+	[% row.typestring %]
+	[%- FOREACH changeset IN row.changesets %]
+	<a href="https://www.openstreetmap.org/changeset/[% changeset %]">[% changeset %]</a>
+	<a href="https://overpass-api.de/achavi/?changeset=[% changeset %]">A</a>
+	[%- END %]
+	[%- FOREACH way IN row.ways %]
+	<a href="https://www.openstreetmap.org/way/[% way %]">[% way %]</a>
+	[%- END %]
+	<br\>
+	[% row.date %]
+	[% row.user %]
+</li>
+[%- END %]
+</ul>
+</body>
+</html>
+
