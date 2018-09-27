@@ -56,6 +56,7 @@
 
 # This is the list of directories where we look for osmium includes.
 set(_osmium_include_path
+	libosmium
         ../libosmium
         ~/Library/Frameworks
         /Library/Frameworks
