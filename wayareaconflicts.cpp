@@ -398,15 +398,21 @@ namespace po = boost::program_options;
 int main(int argc, char* argv[]) {
 	std::string	directory=".";
 
-        po::options_description         desc("Allowed options");
-        desc.add_options()
-                ("help,h", "produce help message")
-                ("infile,i", po::value<std::string>(), "Input file")
-		("dbname", po::value<std::string>(), "Output database name")
-        ;
-        po::variables_map vm;
-        po::store(po::parse_command_line(argc, argv, desc), vm);
-	po::notify(vm);
+	po::options_description_easy_init	desc("Allowed options");
+	desc.add_options()
+		("help,h", "produce help message")
+		("infile,i", po::value<std::string>()->required(), "Input file")
+		("dbname", po::value<std::string>()->required(), "Output database name")
+	;
+	po::variables_map vm;
+	try {
+		po::store(po::parse_command_line(argc, argv, desc), vm);
+		po::notify(vm);
+	} catch(const boost::program_options::error& e) {
+		std::cerr << "Error: " << e.what() << "\n";
+		std::cout << desc << std::endl;
+		exit(-1);
+	}
 
 	nodeindex_t		ni;
 	OGRRegisterAll();
