@@ -256,8 +256,13 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 		return attachedways.size();
 	}
 
-	void checkadjacent(AttachedWay *awo, osmium::object_id_type nid1, osmium::object_id_type nid2, MyOGRHandler &writer) {
-		waycontainer_t	*ways=nindex->get(nid1)->second;
+	void checkadjacent(
+			AttachedWay *awo,
+			nodeinfo_t *ni1, nodeinfo_t *ni2,
+			osmium::object_id_type nid1, osmium::object_id_type nid2,
+			MyOGRHandler &writer) {
+		waycontainer_t	*ways=ni1->second;
+
 		// FIXME - Non existant node
 		for(auto aw : *ways) {
 			if (DEBUG)
@@ -290,8 +295,8 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 				std::cout << aw->time().to_iso() << " " << aw->user() << "\n";
 			}
 
-			osmium::Location	nl1=nindex->get(nid1)->first,
-						nl2=nindex->get(nid2)->first;
+			osmium::Location	nl1=ni1->first,
+						nl2=ni2->first;
 
 			writer.write_line(nl1, nl2, awo, aw);
 		}
@@ -299,6 +304,7 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 
 	void finddoubles(MyOGRHandler &writer) {
 		for(auto aw : attachedways) {
+			nodeinfo_t		*lastni=nullptr;
 			osmium::object_id_type	lastnid=0;
 
 			if (DEBUG)
@@ -313,13 +319,14 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 
 			/* Check if there are 2 consecutive nodes which have a refcount > 1 */
 			for(auto nid : aw->nodeids) {
+				nodeinfo_t	*ni=nindex->get(nid);
 				if (DEBUG)
 						std::cout << "\tNode: " << nid 
-						<< " count: " << nindex->get(nid)->second->size()
+						<< " count: " << ni->second->size()
 						<< " Last: " << lastnid
 						<< std::endl;
 
-				if (nindex->get(nid)->second->size() <= 1) {
+				if (ni->second->size() <= 1) {
 					lastnid=0;
 					continue;
 				}
@@ -329,8 +336,10 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 					 * Check other ways connected to THIS node if they are also attached
 					 * to the previous node
 					 */
-					checkadjacent(aw, nid, lastnid, writer);
+					checkadjacent(aw, ni, lastni, nid, lastnid, writer);
 				}
+
+				lastni=ni;
 				lastnid=nid;
 			}
 
@@ -344,13 +353,12 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 		nodeinfo_t		*ni;
 		osmium::object_id_type	nid=node.id();
 
-		try {
-			ni=nindex->get(nid);
-		} catch (osmium::not_found&) {
-			ni=new nodeinfo_t;
-			nindex->set(nid, ni);
-			ni->first=node.location();
-		}
+		// It could theroretically happen that we have a node twice. We
+		// loose memory in that case as nindex->set simply overwrites the pointer.
+		// The performance gain is 10% by not issuing a ->get beforehand.
+		ni=new nodeinfo_t;
+		nindex->set(nid, ni);
+		ni->first=node.location();
 	}
 
 	void way_add_unique(AttachedWay *aw, waycontainer_t *wc) {
@@ -377,6 +385,7 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 			try {
 				ni=nindex->get(nid);
 			} catch (osmium::not_found&) {
+				/* Rare occurence - complete ways we dont have all nodes for */
 				ni=new nodeinfo_t;
 				nindex->set(nid, ni);
 			}
