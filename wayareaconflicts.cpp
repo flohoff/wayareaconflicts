@@ -313,7 +313,6 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 
 			/* Check if there are 2 consecutive nodes which have a refcount > 1 */
 			for(auto nid : aw->nodeids) {
-
 				if (DEBUG)
 						std::cout << "\tNode: " << nid 
 						<< " count: " << nindex->get(nid)->second->size()
@@ -398,7 +397,7 @@ namespace po = boost::program_options;
 int main(int argc, char* argv[]) {
 	std::string	directory=".";
 
-	po::options_description_easy_init	desc("Allowed options");
+	po::options_description		desc("Allowed options");
 	desc.add_options()
 		("help,h", "produce help message")
 		("infile,i", po::value<std::string>()->required(), "Input file")
