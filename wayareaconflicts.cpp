@@ -207,6 +207,7 @@ public:
         m_layer_linestring.add_field("areaway_id", OFTString, 20);
         m_layer_linestring.add_field("areaway_type", OFTString, 20);
         m_layer_linestring.add_field("areaway_changeset", OFTString, 20);
+        m_layer_linestring.add_field("style", OFTString, 20);
 	}
 
         void write_line(
@@ -238,6 +239,8 @@ public:
                 feature.set_field("areaway_id" , static_cast<double>(aw->id()));
                 feature.set_field("areaway_type", aw->primarytag());
                 feature.set_field("areaway_changeset", static_cast<double>(aw->changeset()));
+
+                feature.set_field("style", "redline");
 
                 feature.add_to_layer();
         }
