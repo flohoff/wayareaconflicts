@@ -7,7 +7,7 @@
 #include <osmium/io/any_input.hpp>
 #include <osmium/handler.hpp>
 #include <osmium/visitor.hpp>
-#include <osmium/index/map/sparse_mem_map.hpp>
+#include <osmium/index/map/flex_mem.hpp>
 #include <osmium/geom/ogr.hpp>
 #include <osmium/osm/timestamp.hpp>
 
@@ -24,7 +24,7 @@ const std::vector<std::string>	possibleareatags = { "highway", "aeroway", "water
 
 typedef std::vector<AttachedWay *> waycontainer_t;
 typedef std::pair<osmium::Location, waycontainer_t *> nodeinfo_t;
-typedef osmium::index::map::SparseMemMap<osmium::unsigned_object_id_type, nodeinfo_t *> nodeindex_t;
+typedef osmium::index::map::FlexMem<osmium::unsigned_object_id_type, nodeinfo_t *> nodeindex_t;
 
 enum {
 	WAY_IS_UNKNOWN,
@@ -350,11 +350,13 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 		nodeinfo_t		*ni;
 		osmium::object_id_type	nid=node.id();
 
-		// It could theroretically happen that we have a node twice. We
-		// loose memory in that case as nindex->set simply overwrites the pointer.
-		// The performance gain is 10% by not issuing a ->get beforehand.
-		ni=new nodeinfo_t;
-		nindex->set(nid, ni);
+		// FlexMem sparse mode appends a new entry on re-set instead of
+		// overwriting, so check first and update the location instead.
+		ni=nindex->get_noexcept(nid);
+		if (!ni) {
+			ni=new nodeinfo_t;
+			nindex->set(nid, ni);
+		}
 		ni->first=node.location();
 	}
 
@@ -436,6 +438,10 @@ int main(int argc, char* argv[]) {
 
 	osmium::apply(reader, awhandler);
 	reader.close();
+
+	/* Map contract: sort after writing all data, before reading.
+	   FlexMem sparse mode binary-searches, so this is required there. */
+	ni.sort();
 
 	MyOGRHandler		lwriter{dataset, ogrfactory};
 
