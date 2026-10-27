@@ -44,15 +44,16 @@ public:
 
 	std::vector<osmium::object_id_type>	nodeids;
 
-	AttachedWay() : wayisarea(WAY_IS_UNKNOWN) {
+	AttachedWay() : wayisarea(WAY_IS_UNKNOWN), ptag(nullptr) {
 	}
 
-	AttachedWay(const osmium::Way& way) {
+	AttachedWay(const osmium::Way& way) : ptag(nullptr) {
 		wayid=way.id();
 		username=strdup(way.user());
 		timestamp=way.timestamp();
 		changesetid=way.changeset();
 
+		nodeids.reserve(way.nodes().size());
 		for (auto& node_ref : way.nodes()) {
 			nodeids.push_back(node_ref.ref());
 		}
@@ -109,26 +110,27 @@ public:
 		}
 
 		/* Walk a list of default area tags landuse, landcover, leisure, amenity, building */
-		for(auto t : areatags) {
+		/* ptag points into the const global tag vectors: stable for program lifetime */
+		for(const auto& t : areatags) {
 			if (taglist.get_value_by_key(t.c_str())) {
-				ptag=strdup(t.c_str());
+				ptag=t.c_str();
 				wayisarea=WAY_IS_AREA;
 				return;
 			}
 		}
 
-		for(auto t : possibleareatags) {
+		for(const auto& t : possibleareatags) {
 			if (!taglist.get_value_by_key(t.c_str()))
 				continue;
 
 			if (!way.is_closed()) {
-				ptag=strdup(t.c_str());
+				ptag=t.c_str();
 				wayisarea=WAY_IS_LINE;
 				return;
 			}
 
 			if (tagvalue_is_true(taglist, "area")) {
-				ptag=strdup(t.c_str());
+				ptag=t.c_str();
 				wayisarea=WAY_IS_AREA;
 				return;
 			}
@@ -242,7 +244,6 @@ public:
 struct AttachedWaysHandler : public osmium::handler::Handler {
 	std::vector<AttachedWay*>		attachedways;
 	nodeindex_t				*nindex;
-	osmium::geom::OGRFactory<>		ogrfactory {};
 
 	AttachedWaysHandler(nodeindex_t *enindex) {
 		nindex=enindex;
@@ -429,7 +430,7 @@ int main(int argc, char* argv[]) {
 	osmium::geom::OGRFactory<>	ogrfactory {};
 
 	osmium::io::File	infile(vm["infile"].as<std::string>());
-	osmium::io::Reader	reader(infile);
+	osmium::io::Reader	reader(infile, osmium::osm_entity_bits::node | osmium::osm_entity_bits::way);
 
 	AttachedWaysHandler	awhandler(&ni);
 
