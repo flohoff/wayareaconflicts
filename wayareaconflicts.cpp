@@ -1,21 +1,14 @@
+#include <cstring>
 #include <iostream>
-#include <getopt.h>
-#include <unordered_map>
+#include <memory>
 #include <string>
-#include <list>
-#include <set>
-
-#include <google/sparsetable>
+#include <vector>
 
 #include <osmium/io/any_input.hpp>
 #include <osmium/handler.hpp>
 #include <osmium/visitor.hpp>
-#include <osmium/handler/dump.hpp>
-#include <osmium/handler/dump.hpp>
-#include <osmium/handler/node_locations_for_ways.hpp>
-#include <osmium/index/map/all.hpp>
+#include <osmium/index/map/sparse_mem_map.hpp>
 #include <osmium/geom/ogr.hpp>
-#include <osmium/geom/factory.hpp>
 #include <osmium/osm/timestamp.hpp>
 
 #include <boost/program_options.hpp>
@@ -31,7 +24,7 @@ const std::vector<std::string>	possibleareatags = { "highway", "aeroway", "water
 
 typedef std::vector<AttachedWay *> waycontainer_t;
 typedef std::pair<osmium::Location, waycontainer_t *> nodeinfo_t;
-typedef osmium::index::map::SparseMemTable<osmium::unsigned_object_id_type, nodeinfo_t *> nodeindex_t;
+typedef osmium::index::map::SparseMemMap<osmium::unsigned_object_id_type, nodeinfo_t *> nodeindex_t;
 
 enum {
 	WAY_IS_UNKNOWN,
@@ -226,7 +219,7 @@ public:
 			connection_line->addPoint(op1.get());
 			connection_line->addPoint(op2.get());
 
-		} catch(osmium::invalid_location) {
+		} catch(const osmium::invalid_location&) {
 			std::cerr << "Invalid location" << std::endl;
 			return;
 		}
