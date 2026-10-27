@@ -21,11 +21,6 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 find_package(Osmium REQUIRED COMPONENTS io gdal)
 
-if(NOT OSMIUM_FOUND)
-	message(WARNING "Libosmium not found!\n")
-endif()
-
-
 find_package(Boost CONFIG 1.70.0 REQUIRED COMPONENTS program_options filesystem system )
 include_directories(${Boost_INCLUDE_DIRS})
 
