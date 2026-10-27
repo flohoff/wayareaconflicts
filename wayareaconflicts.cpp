@@ -253,10 +253,6 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 	AttachedWaysHandler() {
 	}
 
-	int attachedways_num() {
-		return attachedways.size();
-	}
-
 	void checkadjacent(
 			AttachedWay *awo,
 			waycontainer_t *wc,
