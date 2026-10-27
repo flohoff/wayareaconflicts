@@ -139,10 +139,6 @@ public:
 			}
 		}
 
-		if (!way.is_closed()) {
-			wayisarea=WAY_IS_UNKNOWN;
-			return;
-		}
 		wayisarea=WAY_IS_UNKNOWN;
 		return;
 	}
