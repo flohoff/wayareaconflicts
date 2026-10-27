@@ -1,13 +1,15 @@
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <osmium/io/any_input.hpp>
 #include <osmium/handler.hpp>
 #include <osmium/visitor.hpp>
-#include <osmium/index/map/flex_mem.hpp>
 #include <osmium/geom/ogr.hpp>
 #include <osmium/osm/timestamp.hpp>
 
@@ -23,8 +25,8 @@ const std::vector<std::string>	areatags = { "landuse", "landcover", "amenity", "
 const std::vector<std::string>	possibleareatags = { "highway", "aeroway", "waterway", "power", "railway" };
 
 typedef std::vector<AttachedWay *> waycontainer_t;
-typedef std::pair<osmium::Location, waycontainer_t *> nodeinfo_t;
-typedef osmium::index::map::FlexMem<osmium::unsigned_object_id_type, nodeinfo_t *> nodeindex_t;
+typedef std::pair<osmium::unsigned_object_id_type, osmium::Location> locpair_t;
+typedef std::pair<osmium::unsigned_object_id_type, AttachedWay *> wayref_t;
 
 enum {
 	WAY_IS_UNKNOWN,
@@ -104,7 +106,8 @@ public:
 	void wayarea(const osmium::Way& way) {
 		const osmium::TagList& taglist=way.tags();
 
-		if (taglist.size() == 0) {
+		/* empty ways (e.g. action=delete) can neither be line nor area */
+		if (taglist.size() == 0 || way.nodes().empty()) {
 			wayisarea=WAY_IS_UNKNOWN;
 			return;
 		}
@@ -243,10 +246,11 @@ public:
 
 struct AttachedWaysHandler : public osmium::handler::Handler {
 	std::vector<AttachedWay*>		attachedways;
-	nodeindex_t				*nindex;
+	std::vector<locpair_t>			locations;
+	std::vector<wayref_t>			wayrefs;
+	std::unordered_map<osmium::unsigned_object_id_type, waycontainer_t *>	sharednodes;
 
-	AttachedWaysHandler(nodeindex_t *enindex) {
-		nindex=enindex;
+	AttachedWaysHandler() {
 	}
 
 	int attachedways_num() {
@@ -255,13 +259,10 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 
 	void checkadjacent(
 			AttachedWay *awo,
-			nodeinfo_t *ni1, nodeinfo_t *ni2,
+			waycontainer_t *wc,
 			osmium::object_id_type nid1, osmium::object_id_type nid2,
 			MyOGRHandler &writer) {
-		waycontainer_t	*ways=ni1->second;
-
-		// FIXME - Non existant node
-		for(auto aw : *ways) {
+		for(auto aw : *wc) {
 			if (DEBUG)
 				std::cout << "\t\tChecking " << aw->id() << std::endl;
 
@@ -292,16 +293,66 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 				std::cout << aw->time().to_iso() << " " << aw->user() << "\n";
 			}
 
-			osmium::Location	nl1=ni1->first,
-						nl2=ni2->first;
+			osmium::Location	nl1=location_for(nid1),
+						nl2=location_for(nid2);
 
 			writer.write_line(nl1, nl2, awo, aw);
 		}
 	}
 
+	/*
+	 * Locations sorted by id; binary search. Returns an undefined
+	 * Location for nodes we do not know.
+	 */
+	osmium::Location location_for(osmium::unsigned_object_id_type nid) const {
+		const auto it=std::lower_bound(locations.begin(), locations.end(), nid,
+				[](const locpair_t& p, osmium::unsigned_object_id_type id) { return p.first < id; });
+
+		if (it != locations.end() && it->first == nid)
+			return it->second;
+
+		return osmium::Location{};
+	}
+
+	/*
+	 * Sort what was collected blindly during the handler passes and
+	 * build the way containers for all nodes referenced by more than
+	 * one way. No lookups happen while collecting, so files with
+	 * missing nodes or out of order objects are handled fine.
+	 */
+	void prepare(void) {
+		std::sort(locations.begin(), locations.end(),
+			  [](const locpair_t& a, const locpair_t& b) { return a.first < b.first; });
+		/* pair operator< : id, then pointer - duplicate refs from closed
+		   ways (first node == last node) end up adjacent */
+		std::sort(wayrefs.begin(), wayrefs.end());
+
+		for(auto it=wayrefs.begin(); it != wayrefs.end(); ) {
+			auto run_end=it;
+			while (run_end != wayrefs.end() && run_end->first == it->first)
+				++run_end;
+
+			if (run_end - it >= 2) {
+				waycontainer_t	*wc=new waycontainer_t;
+				for(auto r=it; r != run_end; ++r) {
+					/* dedup: same way traversing the same node twice */
+					if (wc->empty() || wc->back() != r->second)
+						wc->push_back(r->second);
+				}
+				if (wc->size() > 1)
+					sharednodes.emplace(it->first, wc);
+				else
+					delete wc;
+			}
+
+			it=run_end;
+		}
+
+		std::vector<wayref_t>().swap(wayrefs);
+	}
+
 	void finddoubles(MyOGRHandler &writer) {
 		for(auto aw : attachedways) {
-			nodeinfo_t		*lastni=nullptr;
 			osmium::object_id_type	lastnid=0;
 
 			if (DEBUG)
@@ -316,14 +367,15 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 
 			/* Check if there are 2 consecutive nodes which have a refcount > 1 */
 			for(auto nid : aw->nodeids) {
-				nodeinfo_t	*ni=nindex->get(nid);
+				auto			wit=sharednodes.find(nid);
+				waycontainer_t		*wc=(wit == sharednodes.end()) ? nullptr : wit->second;
 				if (DEBUG)
 						std::cout << "\tNode: " << nid 
-						<< " count: " << ni->second->size()
+						<< " count: " << (wc ? wc->size() : 0)
 						<< " Last: " << lastnid
 						<< std::endl;
 
-				if (ni->second->size() <= 1) {
+				if (!wc || wc->size() <= 1) {
 					lastnid=0;
 					continue;
 				}
@@ -333,10 +385,9 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 					 * Check other ways connected to THIS node if they are also attached
 					 * to the previous node
 					 */
-					checkadjacent(aw, ni, lastni, nid, lastnid, writer);
+					checkadjacent(aw, wc, nid, lastnid, writer);
 				}
 
-				lastni=ni;
 				lastnid=nid;
 			}
 
@@ -347,26 +398,7 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 
 
 	void node(const osmium::Node& node) {
-		nodeinfo_t		*ni;
-		osmium::object_id_type	nid=node.id();
-
-		// FlexMem sparse mode appends a new entry on re-set instead of
-		// overwriting, so check first and update the location instead.
-		ni=nindex->get_noexcept(nid);
-		if (!ni) {
-			ni=new nodeinfo_t;
-			nindex->set(nid, ni);
-		}
-		ni->first=node.location();
-	}
-
-	void way_add_unique(AttachedWay *aw, waycontainer_t *wc) {
-		for(auto awi : *wc) {
-			if (awi->id() == aw->id()) {
-				return;
-			}
-		}
-		wc->push_back(aw);
+		locations.emplace_back(node.id(), node.location());
 	}
 
 	void way(const osmium::Way& way) {
@@ -375,27 +407,12 @@ struct AttachedWaysHandler : public osmium::handler::Handler {
 		attachedways.push_back(aw);
 
 		for (auto& node_ref : way.nodes()) {
-			nodeinfo_t		*ni;
 			osmium::object_id_type	nid=node_ref.ref();
 
 			if (DEBUG)
 				std::cout << "Adding way " << way.id() << " Nodeid: " << nid << std::endl;
 
-			try {
-				ni=nindex->get(nid);
-			} catch (osmium::not_found&) {
-				/* Rare occurence - complete ways we dont have all nodes for */
-				ni=new nodeinfo_t;
-				nindex->set(nid, ni);
-			}
-
-			if (!ni->second) {
-				ni->second=new waycontainer_t;
-				ni->second->push_back(aw);
-				continue;
-			}
-
-			way_add_unique(aw, ni->second);
+			wayrefs.emplace_back(nid, aw);
 		}
 	}
 };
@@ -421,7 +438,6 @@ int main(int argc, char* argv[]) {
 		exit(-1);
 	}
 
-	nodeindex_t		ni;
 	OGRRegisterAll();
 
 	gdalcpp::Dataset	dataset{"sqlite", vm["dbname"].as<std::string>(),
@@ -434,14 +450,12 @@ int main(int argc, char* argv[]) {
 	osmium::io::File	infile(vm["infile"].as<std::string>());
 	osmium::io::Reader	reader(infile, osmium::osm_entity_bits::node | osmium::osm_entity_bits::way);
 
-	AttachedWaysHandler	awhandler(&ni);
+	AttachedWaysHandler	awhandler;
 
 	osmium::apply(reader, awhandler);
 	reader.close();
 
-	/* Map contract: sort after writing all data, before reading.
-	   FlexMem sparse mode binary-searches, so this is required there. */
-	ni.sort();
+	awhandler.prepare();
 
 	MyOGRHandler		lwriter{dataset, ogrfactory};
 
